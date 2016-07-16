@@ -63,28 +63,18 @@ ___  ___ |  / _  /   _  __/ _  / / /_/ /_ |/ |/ /
  _/_/  |_/_/  /_/    /_/    /_/  \____/____/|__/
  """
 
-BASE_LOG_URL = '/admin/airflow/log'
-AIRFLOW_HOME = os.path.expanduser(conf.get('core', 'AIRFLOW_HOME'))
-SQL_ALCHEMY_CONN = conf.get('core', 'SQL_ALCHEMY_CONN')
-LOGGING_LEVEL = logging.INFO
-DAGS_FOLDER = os.path.expanduser(conf.get('core', 'DAGS_FOLDER'))
-
-engine_args = {}
-if 'sqlite' not in SQL_ALCHEMY_CONN:
-    # Engine args not supported by sqlite
-    engine_args['pool_size'] = conf.getint('core', 'SQL_ALCHEMY_POOL_SIZE')
-    engine_args['pool_recycle'] = conf.getint('core',
-                                              'SQL_ALCHEMY_POOL_RECYCLE')
-
-engine = create_engine(SQL_ALCHEMY_CONN, **engine_args)
-Session = scoped_session(
-    sessionmaker(autocommit=False, autoflush=False, bind=engine))
+BASE_LOG_URL = None
+AIRFLOW_HOME = None
+SQL_ALCHEMY_CONN = None
+LOGGING_LEVEL = None
+DAGS_FOLDER = None
+engine = None
+Session = None
 
 # can't move this to conf due to ConfigParser interpolation
 LOG_FORMAT = (
     '[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s')
 SIMPLE_LOG_FORMAT = '%(asctime)s %(levelname)s - %(message)s'
-
 
 def policy(task_instance):
     """
@@ -118,6 +108,34 @@ def configure_logging():
     logging.basicConfig(
         format=LOG_FORMAT, stream=sys.stdout, level=LOGGING_LEVEL)
 
+
+def configure_vars():
+    global BASE_LOG_URL
+    global AIRFLOW_HOME
+    global SQL_ALCHEMY_CONN
+    global LOGGING_LEVEL
+    global DAGS_FOLDER
+    BASE_LOG_URL = '/admin/airflow/log'
+    AIRFLOW_HOME = os.path.expanduser(conf.get('core', 'AIRFLOW_HOME'))
+    SQL_ALCHEMY_CONN = conf.get('core', 'SQL_ALCHEMY_CONN')
+    LOGGING_LEVEL = logging.INFO
+    DAGS_FOLDER = os.path.expanduser(conf.get('core', 'DAGS_FOLDER'))
+
+
+def configure_orm():
+    global engine
+    global Session
+    engine_args = {}
+    if 'sqlite' not in SQL_ALCHEMY_CONN:
+        # Engine args not supported by sqlite
+        engine_args['pool_size'] = conf.getint('core', 'SQL_ALCHEMY_POOL_SIZE')
+        engine_args['pool_recycle'] = conf.getint('core',
+                                                  'SQL_ALCHEMY_POOL_RECYCLE')
+
+    engine = create_engine(SQL_ALCHEMY_CONN, **engine_args)
+    Session = scoped_session(
+        sessionmaker(autocommit=False, autoflush=False, bind=engine))
+
 try:
     from airflow_local_settings import *
     logging.info("Loaded airflow_local_settings.")
@@ -125,3 +143,5 @@ except:
     pass
 
 configure_logging()
+configure_vars()
+configure_orm()

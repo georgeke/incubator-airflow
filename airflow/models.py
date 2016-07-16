@@ -734,6 +734,7 @@ class TaskInstance(Base):
         self.force = False  # can be changed when calling 'run'
         self.unixname = getpass.getuser()
         self.run_as_user = task.run_as_user
+        self.log_dir = task.log_dir
         if state:
             self.state = state
 
@@ -747,7 +748,9 @@ class TaskInstance(Base):
             pickle_id=None,
             raw=False,
             job_id=None,
-            pool=None):
+            pool=None,
+            airflow_cfg=None,
+            try_log_dir=False):
         """
         Returns a command that can be executed anywhere where airflow is
         installed. This command is part of the message sent to executors by
@@ -755,6 +758,7 @@ class TaskInstance(Base):
         """
         dag = self.task.dag
         iso = self.execution_date.isoformat()
+        pickled_cfg = "".join(pickle.dumps(airflow_cfg)) if airflow_cfg else None
         cmd = "airflow run {self.dag_id} {self.task_id} {iso} "
         cmd += "--mark_success " if mark_success else ""
         cmd += "--pickle {pickle_id} " if pickle_id else ""
@@ -765,6 +769,8 @@ class TaskInstance(Base):
         cmd += "--local " if local else ""
         cmd += "--pool {pool} " if pool else ""
         cmd += "--raw " if raw else ""
+        cmd += "--airflow_cfg \"{pickled_cfg}\" " if airflow_cfg else ""
+        cmd += "--log_dir \"{self.log_dir}\" " if try_log_dir and self.log_dir else ""
         if not pickle_id and dag:
             if dag.full_filepath != dag.filepath:
                 cmd += "-sd DAGS_FOLDER/{dag.filepath} "
@@ -1800,6 +1806,10 @@ class BaseOperator(object):
     :type trigger_rule: str
     :param run_as_user: unix username to impersonate while running the task
     :type run_as_user: str
+    :param log_dir: custom logging directory only used if run_as_user is set.
+        The home directory (~) will be based on the user running the task.
+        If unset, the log_dir will default to ~/airflow/logs.
+    :type log_dir: str
     """
 
     # For derived classes to define which fields will get jinjaified
@@ -1841,6 +1851,7 @@ class BaseOperator(object):
             on_retry_callback=None,
             trigger_rule=TriggerRule.ALL_SUCCESS,
             run_as_user=None,
+            log_dir=None,
             *args,
             **kwargs):
 
@@ -1894,6 +1905,7 @@ class BaseOperator(object):
         self.on_success_callback = on_success_callback
         self.on_retry_callback = on_retry_callback
         self.run_as_user = run_as_user
+        self.log_dir = log_dir
         if isinstance(retry_delay, timedelta):
             self.retry_delay = retry_delay
         else:
