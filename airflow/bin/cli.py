@@ -213,18 +213,6 @@ def run(args, dag=None):
     if dag:
         args.dag_id = dag.dag_id
 
-    # Load custom airflow config
-    if args.airflow_cfg:
-        global pickle
-        conf_dict = pickle.loads(args.airflow_cfg)
-        for section, config in conf_dict.items():
-            for option, value in config.items():
-                conf.set(section, option, value)
-        if args.log_dir:
-            conf.set('core', 'BASE_LOG_FOLDER', args.log_dir)
-        settings.configure_vars()
-        settings.configure_orm()
-
     # Setting up logging
     log_base = os.path.expanduser(conf.get('core', 'BASE_LOG_FOLDER'))
     filename = get_logging_filename(args, log_base)
@@ -235,7 +223,7 @@ def run(args, dag=None):
     except IOError:
         # If current logging file is not writable, default to `~/airflow/logs`
         logging.info("Cannot write to logging file: " + filename)
-        conf.set('core', 'BASE_LOG_FOLDER', '~/airflow/logs')
+        conf.set('core', 'BASE_LOG_FOLDER', '~poop/airflow/logs')
         log_base = os.path.expanduser(conf.get('core', 'BASE_LOG_FOLDER'))
         filename = get_logging_filename(args, log_base)
 
@@ -271,6 +259,7 @@ def run(args, dag=None):
             pool=args.pool)
         run_job.run()
     elif args.raw:
+        print("CLogging into: " + filename)
         ti.run(
             mark_success=args.mark_success,
             force=args.force,
@@ -826,10 +815,6 @@ class CLIFactory(object):
             ("-p", "--pickle"),
             "Serialized pickle object of the entire dag (used internally)"),
         'job_id': Arg(("-j", "--job_id"), argparse.SUPPRESS),
-        'airflow_cfg': Arg(
-            ("--airflow_cfg", ), "Custom picked config to use instead of airflow.cfg"),
-        'log_dir': Arg(
-            ("--log_dir", ), "Custom logging directory"),
         # webserver
         'port': Arg(
             ("-p", "--port"),
@@ -964,8 +949,8 @@ class CLIFactory(object):
             'help': "Run a single task instance",
             'args': (
                 'dag_id', 'task_id', 'execution_date', 'subdir',
-                'mark_success', 'force', 'pool', 'airflow_cfg',
-                'local', 'raw', 'ignore_dependencies', 'log_dir',
+                'mark_success', 'force', 'pool',
+                'local', 'raw', 'ignore_dependencies',
                 'ignore_depends_on_past', 'ship_dag', 'pickle', 'job_id'),
         }, {
             'func': initdb,

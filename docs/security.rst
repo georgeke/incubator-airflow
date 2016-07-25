@@ -260,6 +260,6 @@ it can ``sudo -u USER``.
 
 In terms of logging, the order of preference for a logging directory is:
 
-1. The ``log_dir`` parameter passed to a subprocess/operator. If not provided,
+1. The ``user_log_dir`` parameter passed to a subprocess/operator. If not provided,
 2. The ``base_log_dir`` in AIRFLOW_CONFIG. If ``run_as_user`` doesn't have permission to read,
 3. `~/airflow/logs`, where the home directory is based on ``run_as_user``

@@ -26,6 +26,8 @@ import socket
 import subprocess
 import multiprocessing
 import math
+import shlex
+import os
 from time import sleep
 
 from sqlalchemy import Column, Integer, String, DateTime, func, Index, or_
@@ -1108,18 +1110,24 @@ class LocalTaskJob(BaseJob):
 
         super(LocalTaskJob, self).__init__(*args, **kwargs)
 
-    def _execute(self):
-        airflow_cfg = None
-        popen_prepend = []
-        if self.task_instance.run_as_user:
-            cfg_dict = conf.as_dict()
-            airflow_cfg = {
-                'core': cfg_dict.get('core', {}),
-                'smtp': cfg_dict.get('smtp', {}),
-                'scheduler': cfg_dict.get('scheduler', {}),
-            }
-            popen_prepend = ['sudo', '-H', '-u', self.task_instance.run_as_user]
+    def _impersonate(self, conf_dict, uid, command_args, log_dir):
+        os.setuid(uid)
 
+        # Load custom airflow config
+        for section, config in conf_dict.items():
+            for option, value in config.items():
+                conf.set(section, option, value)
+        if log_dir:
+            conf.set('core', 'BASE_LOG_FOLDER', log_dir)
+        settings.configure_vars()
+        settings.configure_orm()
+
+        from airflow.bin.cli import CLIFactory
+        parser = CLIFactory.get_parser()
+        args = parser.parse_args(command_args)
+        args.func(args)
+
+    def _execute(self):
         command = self.task_instance.command(
             raw=True,
             ignore_dependencies=self.ignore_dependencies,
@@ -1129,14 +1137,38 @@ class LocalTaskJob(BaseJob):
             mark_success=self.mark_success,
             job_id=self.id,
             pool=self.pool,
-            airflow_cfg=airflow_cfg,
-            try_log_dir=True,
         )
-        self.process = subprocess.Popen(popen_prepend + ['bash', '-c', command])
+
         return_code = None
-        while return_code is None:
-            self.heartbeat()
-            return_code = self.process.poll()
+        run_as_user = self.task_instance.run_as_user
+        if run_as_user:
+            cfg_dict = conf.as_dict()
+            child_config_dict = {
+                'core': cfg_dict.get('core', {}),
+                'smtp': cfg_dict.get('smtp', {}),
+                'scheduler': cfg_dict.get('scheduler', {}),
+            }
+            uid = int(subprocess.check_output(['id','-u', run_as_user]))
+
+            child_log_dir = self.task_instance.user_log_dir
+            if child_log_dir:
+                # setuid does not change $HOME so we have to replace `~` with `~user`
+                if '~{}'.format(run_as_user) not in child_log_dir:
+                    child_log_dir = child_log_dir.replace('~', '~{}'.format(run_as_user))
+
+            self.process = multiprocessing.Process(
+                target=self._impersonate,
+                args=(child_config_dict, uid, shlex.split(command)[1:], child_log_dir)) 
+            self.process.start()
+
+            while return_code is None:
+                self.heartbeat()
+                return_code = self.process.exitcode
+        else:
+            self.process = subprocess.Popen(['bash', '-c', command])
+            while return_code is None:
+                self.heartbeat()
+                return_code = self.process.poll()
 
     def on_kill(self):
         self.process.terminate()
